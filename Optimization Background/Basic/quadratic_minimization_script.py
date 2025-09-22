@@ -1,5 +1,5 @@
 # (c) Jacob White, 2025
-# This script solves the model problem
+# This MATLAB-style script solves the model problem
 # min{c'x + 0.5*x'*C*x | Ax = b}
 # by solving H*[x0, u] = [-c, b]
 # for H = [C, A* // A, 0]
