@@ -15,6 +15,8 @@ class PINN(nn.Module):
             nn.Linear(2, 50), nn.Tanh(),
             nn.Linear(50, 50), nn.Tanh(),
             nn.Linear(50, 50), nn.Tanh(),
+            nn.Linear(50, 50), nn.Tanh(),
+            nn.Linear(50, 50), nn.Tanh(),
             nn.Linear(50, 1)
         )
 
@@ -36,36 +38,47 @@ def pde_residual(model, x, y):
     return u_xx + u_yy
 
 # Generate training data
-def generate_data(n_samples=5000):
-    r = np.random.uniform(0.1, 1.0, n_samples)
+def generate_data(n_samples=4000, n_boundary=1000):
+    # Interior points
+    r = np.random.uniform(0, 1.0, n_samples)
     theta = np.random.uniform(0, 2 * np.pi, n_samples)
     x = r * np.cos(theta)
     y = r * np.sin(theta)
     u_true = np.log(np.sqrt(x**2 + y**2))
-    return torch.tensor(x, dtype=torch.float32), torch.tensor(y, dtype=torch.float32), torch.tensor(u_true, dtype=torch.float32)
+
+    # Boundary points (r=1)
+    theta_b = np.random.uniform(0, 2 * np.pi, n_boundary)
+    x_b = np.cos(theta_b)
+    y_b = np.sin(theta_b)
+    u_b_true = np.zeros(n_boundary)  # Dirichlet condition u=0 on boundary
+
+    # Combine
+    x_all = np.concatenate([x, x_b])
+    y_all = np.concatenate([y, y_b])
+    u_all = np.concatenate([u_true, u_b_true])
+
+    return (torch.tensor(x_all, dtype=torch.float32),
+            torch.tensor(y_all, dtype=torch.float32),
+            torch.tensor(u_all, dtype=torch.float32))
 
 # Training the PINN
 def train_pinn(model, n_epochs=10000):
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.005)
+    optimizer = torch.optim.LBFGS(model.parameters(), lr=1.0, max_iter=1000)
     x, y, u_true = generate_data()
     
-    for epoch in range(n_epochs):
+    def closure():
         optimizer.zero_grad()
-        
-        # PDE loss
-        pde_loss = torch.mean(pde_residual(model, x, y)**2)
-        
-        # Boundary/data loss
+        pde_loss = torch.mean(pde_residual(model, x[:4000], y[:4000])**2)  # Interior only
         u_pred = model(x, y).squeeze()
-        data_loss = torch.mean((u_pred - u_true)**2)
-        
-        # Total loss
-        loss = 10*pde_loss + data_loss
+        data_loss = torch.mean((u_pred - u_true)**2)  # All points
+        loss = pde_loss + 0.1 * data_loss
         loss.backward()
-        optimizer.step()
-        
+        return loss
+    
+    for epoch in range(n_epochs):
+        optimizer.step(closure)
         if (epoch + 1) % 1000 == 0:
-            print(f'Epoch {epoch + 1}, Loss: {loss.item():.6f}')
+            print(f'Epoch {epoch + 1}, Loss: {closure().item():.6f}')
 
 # Plotting functions
 def plot_results(model):
